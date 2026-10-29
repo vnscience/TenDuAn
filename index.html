@@ -1,11 +1,239 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Garden Guardians — Mini Zombie Defense</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --cell: min(9.2vw, 76px); }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; }
+    .game-board { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr)); position: relative; overflow: hidden; isolation: isolate; }
+    .tile { border: 1px solid rgba(255,255,255,.18); cursor: crosshair; position: relative; }
+    .tile:nth-child(18n + 1), .tile:nth-child(18n + 3), .tile:nth-child(18n + 5), .tile:nth-child(18n + 7), .tile:nth-child(18n + 9), .tile:nth-child(18n + 11), .tile:nth-child(18n + 13), .tile:nth-child(18n + 15), .tile:nth-child(18n + 17) { background: rgba(255,255,255,.08); }
+    .tile:hover { box-shadow: inset 0 0 0 3px rgba(250,204,21,.75); }
+    .sprite { position: absolute; display:flex; align-items:center; justify-content:center; transform:translate(-50%,-50%); line-height:1; user-select:none; pointer-events:none; filter: drop-shadow(0 4px 2px rgba(0,0,0,.23)); }
+    .plant { z-index: 4; font-size: clamp(22px, 4.1vw, 40px); }
+    .zombie { z-index: 6; font-size: clamp(25px, 4.4vw, 45px); }
+    .projectile { z-index: 5; width: 13px; height: 13px; border-radius: 50%; background: #a3e635; border: 2px solid #4d7c0f; box-shadow: 0 0 8px #bef264; }
+    .sun { z-index: 8; font-size: clamp(21px, 3.8vw, 34px); cursor:pointer; pointer-events:auto; animation: bob 1.5s ease-in-out infinite; }
+    .hp { position:absolute; bottom:0; left:14%; height:5px; background:#ef4444; border-radius:10px; }
+    @keyframes bob { 50% { transform:translate(-50%,calc(-50% - 6px)); } }
+    .selected { outline: 3px solid #fbbf24; outline-offset: -3px; background:#365314 !important; }
+    .damage { animation: hit .18s linear; }
+    @keyframes hit { 50% { filter: brightness(2); } }
+    @media (max-width: 600px) { .game-board { min-width: 620px; } }
+  </style>
 </head>
-<body>
-    Hello!
+<body class="min-h-screen bg-gradient-to-br from-lime-950 via-emerald-950 to-slate-950 text-white px-4 py-8">
+  <main class="max-w-5xl mx-auto">
+    <header class="mb-5 text-center">
+      <div class="inline-flex items-center gap-2 text-lime-300 text-xs font-bold uppercase tracking-[.25em] mb-2">🌿 Mini browser game</div>
+      <h1 class="text-3xl sm:text-5xl font-black tracking-tight">Garden <span class="text-lime-400">Guardians</span> <span aria-hidden="true">🧟</span></h1>
+      <p class="text-slate-300 mt-2 text-sm sm:text-base">Protect your garden! Plant defenders before the zombies arrive.</p>
+    </header>
+
+    <section class="rounded-2xl border border-white/15 bg-white/10 shadow-2xl p-3 sm:p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div class="flex items-center gap-2">
+          <span class="bg-yellow-400 text-yellow-950 rounded-xl px-4 py-2 font-black">☀️ <span id="sunCount">150</span></span>
+          <span class="rounded-xl px-3 py-2 bg-white/10 text-sm">🧟 Defeated: <b id="score">0</b>/<b id="goal">15</b></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="status" class="text-lime-300 font-semibold text-sm">Choose a plant!</span>
+          <button id="restartBtn" class="rounded-lg bg-white text-slate-950 hover:bg-lime-200 px-4 py-2 font-bold text-sm transition">↻ Restart</button>
+        </div>
+      </div>
+
+      <div id="plantCards" class="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+        <button data-type="shooter" class="plant-card rounded-xl bg-lime-900/80 border-2 border-lime-400 p-2 sm:p-3 flex flex-col sm:flex-row items-center gap-2 hover:bg-lime-800 transition selected" aria-pressed="true"><span class="text-3xl">🌱</span><span class="text-center sm:text-left"><strong class="block text-sm">Pea Shooter</strong><small class="text-yellow-200">☀️ 100</small></span></button>
+        <button data-type="sunflower" class="plant-card rounded-xl bg-lime-900/80 border-2 border-transparent p-2 sm:p-3 flex flex-col sm:flex-row items-center gap-2 hover:bg-lime-800 transition" aria-pressed="false"><span class="text-3xl">🌻</span><span class="text-center sm:text-left"><strong class="block text-sm">Sunflower</strong><small class="text-yellow-200">☀️ 50</small></span></button>
+        <button data-type="wall" class="plant-card rounded-xl bg-lime-900/80 border-2 border-transparent p-2 sm:p-3 flex flex-col sm:flex-row items-center gap-2 hover:bg-lime-800 transition" aria-pressed="false"><span class="text-3xl">🥔</span><span class="text-center sm:text-left"><strong class="block text-sm">Wall Nut</strong><small class="text-yellow-200">☀️ 50</small></span></button>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border-4 border-amber-900/80">
+        <div id="board" class="game-board w-full aspect-[9/5] min-h-[330px] bg-gradient-to-r from-lime-600 to-green-700" aria-label="Garden game board"></div>
+      </div>
+      <div class="flex flex-wrap justify-between gap-2 mt-3 text-xs sm:text-sm text-slate-300"><p>🖱️ Select a plant, then click an empty tile. Click floating suns to collect them.</p><p>🏡 Don't let zombies reach the left edge!</p></div>
+    </section>
+    <p class="mt-5 text-center text-xs text-slate-400">Made with HTML · Tailwind CSS · Vanilla JavaScript</p>
+  </main>
+
+  <div id="endOverlay" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="rounded-3xl bg-emerald-950 border border-lime-400/40 p-8 text-center max-w-sm w-full shadow-2xl">
+      <div id="endEmoji" class="text-6xl mb-3">🏆</div><h2 id="endTitle" class="text-3xl font-black mb-2">You win!</h2>
+      <p id="endDesc" class="text-slate-300 mb-6">Your garden is safe.</p>
+      <button id="playAgainBtn" class="rounded-xl bg-lime-400 text-lime-950 font-black px-6 py-3 hover:bg-lime-300">Play again</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const ROWS = 5, COLS = 9, GOAL = 15, TICK = 50;
+  const TYPES = {
+    shooter: { emoji: '🌱', cost: 100, hp: 100, interval: 1250 },
+    sunflower: { emoji: '🌻', cost: 50, hp: 80, interval: 5200 },
+    wall: { emoji: '🥔', cost: 50, hp: 450 }
+  };
+  const board = document.getElementById('board');
+  const sunCount = document.getElementById('sunCount');
+  const scoreEl = document.getElementById('score');
+  const statusEl = document.getElementById('status');
+  const overlay = document.getElementById('endOverlay');
+  const cards = [...document.querySelectorAll('.plant-card')];
+  let game, timer, selected = 'shooter';
+
+  function setupBoard() {
+    board.innerHTML = '';
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.dataset.row = r; tile.dataset.col = c;
+      tile.addEventListener('click', () => plantAt(r, c));
+      board.appendChild(tile);
+    }
+  }
+  function sprite(cls, content, x, row, width = 100) {
+    const el = document.createElement('div');
+    el.className = `sprite ${cls}`;
+    el.textContent = content;
+    if (cls === 'sun') {
+      el.setAttribute('role', 'button'); el.setAttribute('aria-label', 'Collect sun');
+    }
+    el.style.left = `${(x / COLS) * 100}%`;
+    el.style.top = `${((row + .5) / ROWS) * 100}%`;
+    board.appendChild(el);
+    return el;
+  }
+  function updateHud(message) {
+    sunCount.textContent = game.sun;
+    scoreEl.textContent = game.kills;
+    if (message) statusEl.textContent = message;
+  }
+  function selectPlant(type) {
+    selected = type;
+    cards.forEach(card => {
+      const active = card.dataset.type === type;
+      card.classList.toggle('selected', active);
+      card.classList.toggle('border-lime-400', active);
+      card.classList.toggle('border-transparent', !active);
+      card.setAttribute('aria-pressed', String(active));
+    });
+    if (game?.running) updateHud(`Selected ${type === 'wall' ? 'Wall Nut' : type === 'shooter' ? 'Pea Shooter' : 'Sunflower'}`);
+  }
+  function plantAt(row, col) {
+    if (!game.running) return;
+    if (game.plants.some(p => p.row === row && p.col === col)) return updateHud('That tile is occupied!');
+    const type = TYPES[selected];
+    if (game.sun < type.cost) return updateHud('Not enough sun! ☀️');
+    game.sun -= type.cost;
+    const x = col + .5;
+    const el = sprite('plant', type.emoji, x, row);
+    const plant = { type: selected, row, col, x, hp: type.hp, maxHp: type.hp, lastAction: game.time, el };
+    game.plants.push(plant);
+    updateHud('Plant placed!');
+  }
+  function spawnZombie() {
+    const row = Math.floor(Math.random() * ROWS);
+    const x = COLS + .15;
+    const el = sprite('zombie', '🧟', x, row);
+    const hpBar = document.createElement('div'); hpBar.className = 'hp'; hpBar.style.width = '72%'; el.appendChild(hpBar);
+    game.zombies.push({ row, x, hp: 100, speed: .115 + Math.random() * .055, biteAt: 0, el, hpBar });
+    game.spawned++;
+  }
+  function makeSun(x, row) {
+    const el = sprite('sun', '☀️', x, row);
+    const sun = { el, born: game.time };
+    el.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!game.running || !game.suns.includes(sun)) return;
+      game.sun += 25;
+      remove(game.suns, sun);
+      updateHud('+25 sun!');
+    });
+    game.suns.push(sun);
+  }
+  function remove(array, object) {
+    const index = array.indexOf(object);
+    if (index !== -1) array.splice(index, 1);
+    object.el.remove();
+  }
+  function endGame(won) {
+    game.running = false;
+    clearInterval(timer);
+    overlay.classList.remove('hidden');
+    document.getElementById('endEmoji').textContent = won ? '🏆' : '🧟';
+    document.getElementById('endTitle').textContent = won ? 'You win!' : 'Game over!';
+    document.getElementById('endDesc').textContent = won ? `You defeated all ${GOAL} zombies!` : `You defeated ${game.kills} of ${GOAL} zombies. Try again!`;
+    updateHud(won ? 'Garden saved!' : 'Zombies invaded!');
+  }
+  function tick() {
+    if (!game.running) return;
+    game.time += TICK;
+    if (game.spawned < GOAL && game.time >= game.nextSpawn) {
+      spawnZombie();
+      game.nextSpawn = game.time + Math.max(1350, 3100 - game.spawned * 90);
+    }
+    if (game.time >= game.nextSun) {
+      makeSun(.5 + Math.random() * 7.8, Math.floor(Math.random() * ROWS));
+      game.nextSun = game.time + 4800;
+    }
+    for (const s of [...game.suns]) if (game.time - s.born > 8500) remove(game.suns, s);
+    for (const p of [...game.plants]) {
+      if (p.type === 'sunflower' && game.time - p.lastAction >= TYPES.sunflower.interval) {
+        makeSun(p.x, p.row); p.lastAction = game.time;
+      }
+      if (p.type === 'shooter' && game.time - p.lastAction >= TYPES.shooter.interval && game.zombies.some(z => z.row === p.row && z.x > p.x)) {
+        const el = sprite('projectile', '', p.x + .2, p.row);
+        game.projectiles.push({ row: p.row, x: p.x + .2, el });
+        p.lastAction = game.time;
+      }
+    }
+    for (const shot of [...game.projectiles]) {
+      shot.x += .26;
+      shot.el.style.left = `${shot.x / COLS * 100}%`;
+      const target = game.zombies.find(z => z.row === shot.row && Math.abs(z.x - shot.x) < .30);
+      if (target) {
+        target.hp -= 25;
+        target.hpBar.style.width = `${Math.max(0, target.hp) / 100 * 72}%`;
+        target.el.classList.add('damage');
+        setTimeout(() => target.el.classList.remove('damage'), 160);
+        remove(game.projectiles, shot);
+        if (target.hp <= 0) { remove(game.zombies, target); game.kills++; updateHud('Zombie defeated!'); }
+      } else if (shot.x > COLS + .3) remove(game.projectiles, shot);
+    }
+    for (const zombie of [...game.zombies]) {
+      const blocker = game.plants.find(p => p.row === zombie.row && Math.abs(p.x - zombie.x) < .42);
+      if (blocker) {
+        if (game.time - zombie.biteAt >= 600) {
+          blocker.hp -= 24; zombie.biteAt = game.time;
+          blocker.el.style.opacity = String(Math.max(.45, blocker.hp / blocker.maxHp));
+          if (blocker.hp <= 0) remove(game.plants, blocker);
+        }
+      } else {
+        zombie.x -= zombie.speed * TICK / 1000;
+        zombie.el.style.left = `${zombie.x / COLS * 100}%`;
+      }
+      if (zombie.x <= .10) return endGame(false);
+    }
+    if (game.kills === GOAL) endGame(true);
+  }
+  function restart() {
+    clearInterval(timer);
+    setupBoard();
+    game = { sun: 150, kills: 0, spawned: 0, nextSpawn: 1900, nextSun: 3700, time: 0, running: true, plants: [], zombies: [], suns: [], projectiles: [] };
+    overlay.classList.add('hidden');
+    selectPlant('shooter');
+    updateHud('Choose a plant!');
+    timer = setInterval(tick, TICK);
+  }
+  cards.forEach(c => c.addEventListener('click', () => selectPlant(c.dataset.type)));
+  document.getElementById('restartBtn').addEventListener('click', restart);
+  document.getElementById('playAgainBtn').addEventListener('click', restart);
+  document.getElementById('goal').textContent = GOAL;
+  restart();
+})();
+</script>
 </body>
 </html>
